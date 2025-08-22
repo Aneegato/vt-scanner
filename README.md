@@ -77,6 +77,7 @@ go build -o vt-scanner
 # 3. Visit
 http://127.0.0.1:8080/
 
+```bash
 
 Development Journey: Cloudsine VT Scanner
 1. Initial Deployment to EC2
