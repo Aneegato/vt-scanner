@@ -1,0 +1,248 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Cloudsine VT Scanner — Upload</title>
+  <link rel="stylesheet" href="/static/styles.css"/>
+  <style>
+    /* tiny toast */
+    .toast{position:fixed;right:16px;bottom:16px;padding:10px 14px;background:#111;color:#fff;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.2);display:none;z-index:1000}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1> Virus Scanner</h1>
+      <p class="subtitle">Upload any file for comprehensive security analysis</p>
+
+      {{ if .Err }}
+      <div class="error-message">
+        <strong>⚠️ Error:</strong> {{ .Err }}
+      </div>
+      {{ end }}
+
+      <!-- Search + quick actions (now inside the same card) -->
+      <div style="margin:16px 0 8px 0">
+        <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <input id="q" type="search" placeholder="Search filename…" style="width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px"/>
+            <div id="searchResults" class="muted" style="margin-top:8px"></div>
+          </div>
+          <div style="display:flex;gap:8px;white-space:nowrap">
+            <a href="/malicious" style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none">View malicious only</a>
+            <a href="/export.csv" style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;text-decoration:none">Export CSV</a>
+          </div>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:12px 0"/>
+
+      <!-- Upload form -->
+      <form method="POST" action="/upload" enctype="multipart/form-data" id="uploadForm">
+        <div class="upload-area" id="uploadArea">
+          <div class="upload-icon">
+            <svg width="24" height="24" fill="white" viewBox="0 0 24 24">
+              <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+            </svg>
+          </div>
+          <div class="upload-text">Drop your file here</div>
+          <div class="upload-subtext">or click to browse</div>
+          <button type="button" class="browse-button">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+            </svg>
+            Choose File
+          </button>
+          <input type="file" name="file" class="file-input" id="fileInput" required />
+        </div>
+
+        <div class="file-info" id="fileInfo">
+          <div class="file-name" id="fileName"></div>
+          <div class="file-size" id="fileSize"></div>
+        </div>
+
+        <!-- progress bar (hidden until upload starts) -->
+        <div class="progress-wrap" id="progressWrap" aria-hidden="true" style="display:none;margin-top:12px;background:#e5e7eb;border-radius:8px;overflow:hidden;height:10px">
+          <div id="progressBar" style="height:10px;width:0;transition:width .2s;background:#10b981"></div>
+        </div>
+
+        <button type="submit" class="scan-button" id="scanButton" disabled>
+          Scan File
+        </button>
+      </form>
+
+      <div class="security-note">
+        <div class="shield-icon">
+          <svg width="12" height="12" fill="white" viewBox="0 0 24 24">
+            <path d="M12,1L3,5V11C3,16.55 6.84,21.74 12,23C17.16,21.74 21,16.55 21,11V5L12,1Z" />
+          </svg>
+        </div>
+        <div>
+          <strong>Powered by VirusTotal:</strong> Your file will be scanned by 70+ antivirus engines. Maximum file size: {{.Max}} MB.
+        </div>
+      </div>
+
+      <!-- Recent scans (now inside the same card) -->
+      {{ if .Recent }}
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
+      <div>
+        <h2 style="margin-bottom:8px">Recent scans</h2>
+        <ul>
+          {{ range .Recent }}
+            <li><a href="/result/sha256/{{ .SHA256 }}">{{ .FileName }}</a></li>
+          {{ end }}
+        </ul>
+        <a href="/history">View all</a>
+      </div>
+      {{ else }}
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
+      <p class="muted">No scans yet.</p>
+        {{ end }}
+
+    </div> <!-- /card -->
+  </div> <!-- /container -->
+
+  <!-- small toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const scanButton = document.getElementById('scanButton');
+    const browseButton = uploadArea.querySelector('.browse-button');
+    const form = document.getElementById('uploadForm');
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar = document.getElementById('progressBar');
+    const originalBtnHTML = scanButton.innerHTML;
+
+    function toast(msg){
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      setTimeout(()=>{ t.style.display='none'; }, 4000);
+    }
+
+    // browse
+    browseButton.addEventListener('click', (e) => { e.preventDefault(); fileInput.click(); });
+
+    // DnD
+    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault(); uploadArea.classList.remove('dragover');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) { fileInput.files = files; handleFileSelection(); }
+    });
+
+    // file selection
+    fileInput.addEventListener('change', handleFileSelection);
+    function handleFileSelection() {
+      const file = fileInput.files[0];
+      if (file) {
+        fileName.textContent = file.name;
+        fileSize.textContent = `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
+        fileInfo.classList.add('show');
+        scanButton.disabled = false;
+      } else {
+        fileInfo.classList.remove('show');
+        scanButton.disabled = true;
+      }
+    }
+
+    // --- client-side SHA-256 pre-check + upload progress ---
+    async function sha256Hex(file){
+      const buf = await file.arrayBuffer();
+      const hash = await crypto.subtle.digest("SHA-256", buf);
+      return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }
+
+    form.addEventListener('submit', async (e) => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      e.preventDefault();
+
+      // 1) Pre-hash & lookup to skip upload if known
+      try {
+        const sha = await sha256Hex(file);
+        const res = await fetch(`/api/lookup?sha256=${sha}`);
+        if (res.ok) {
+          const j = await res.json();
+          if (j.found && j.url) { location.href = j.url; return; }
+        }
+      } catch { /* hashing failed, continue to upload */ }
+
+      // 2) Upload with progress bar
+      scanButton.disabled = true;
+      scanButton.innerHTML = `
+        <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24" style="animation: spin 1s linear infinite;">
+          <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z" />
+        </svg>
+        Uploading…
+      `;
+      progressWrap.style.display = 'block';
+      progressBar.style.width = '0%';
+      toast('Uploading & scanning… this may take a few seconds.');
+
+      const xhr = new XMLHttpRequest();
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable) {
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          progressBar.style.width = pct + '%';
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 300) {
+          toast('Upload failed. Please try again.');
+          scanButton.disabled = false;
+          scanButton.innerHTML = originalBtnHTML;
+          progressWrap.style.display = 'none';
+          progressBar.style.width = '0%';
+          return;
+        }
+        location.href = xhr.responseURL || '/';
+      };
+      xhr.onerror = () => {
+        toast('Network error during upload.');
+        scanButton.disabled = false;
+        scanButton.innerHTML = originalBtnHTML;
+        progressWrap.style.display = 'none';
+        progressBar.style.width = '0%';
+      };
+
+      xhr.open('POST', '/upload');
+      const fd = new FormData(); fd.append('file', file);
+      xhr.send(fd);
+    });
+
+    // filename search wiring
+    const q = document.getElementById('q');
+    const box = document.getElementById('searchResults');
+    let t;
+    q?.addEventListener('input', ()=>{
+      clearTimeout(t);
+      const v = q.value.trim();
+      if (!v) { box.textContent = ''; return; }
+      t = setTimeout(async ()=>{
+        box.textContent = 'Searching…';
+        try {
+          const r = await fetch('/api/search?q=' + encodeURIComponent(v));
+          if (!r.ok) { box.textContent = 'Error.'; return; }
+          const rows = await r.json();
+          if (!rows.length) { box.textContent = 'No matches.'; return; }
+          box.innerHTML = '<ul>' + rows.map(
+            s => `<li><a href="/result/sha256/${s.sha256}">${s.file || s.sha256}</a> — ${s.verdict || 'undetected'}</li>`
+          ).join('') + '</ul>';
+        } catch { box.textContent = 'Network error.'; }
+      }, 250);
+    });
+
+    // friendly notices
+    window.addEventListener('error', () => toast('Something went wrong.'));
+    window.addEventListener('unhandledrejection', () => toast('Network hiccup. Try again.'));
+  </script>
+</body>
+</html>

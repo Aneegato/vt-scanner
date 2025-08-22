@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Cloudsine VT Scanner — Result</title>
+  <link rel="stylesheet" href="/static/result.css"/>
+  <style>
+    /* badges to make the verdict super clear */
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;line-height:18px}
+    .badge-clean{background:#10b981;color:#fff}
+    .badge-suspicious{background:#f59e0b;color:#111}
+    .badge-malicious{background:#ef4444;color:#fff}
+    .badge-undetected{background:#6b7280;color:#fff}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .btn{padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer}
+    .btn:hover{background:#f9fafb}
+    .muted{color:#6b7280}
+    pre{white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Scan Result</h1>
+
+    <p>Analysis ID: <code id="analysisId">{{ .AnalysisID }}</code></p>
+    {{ if .SHA256 }}<p>SHA-256: <code id="sha">{{ .SHA256 }}</code></p>{{ end }}
+
+    <!-- Verdict badge + detection tooltip -->
+    <p>
+      <span class="badge badge-{{ .Verdict }}">{{ .Verdict }}</span>
+      <small class="muted" title="Detections over total engines checked">({{ .DetectionRatio }})</small>
+    </p>
+
+    <!-- Place somewhere under the verdict/detection section -->
+    {{ if .ScanCount }}
+      <p class="muted">Seen {{ .ScanCount }} times since {{ .FirstSeen }} (last: {{ .LastSeen }})</p>
+    {{ end }}
+
+
+    {{ if .TopFindings }}
+    <h3>Top flagged engines</h3>
+    <ul>
+      {{ range .TopFindings }}<li>{{ . }}</li>{{ end }}
+    </ul>
+    {{ end }}
+
+    <div class="row" style="margin:12px 0">
+      <button class="btn" id="copyLink">Copy link</button>
+
+      <!-- Re-scan needs SHA in template data -->
+      {{ if .SHA256 }}
+      <form method="post" action="/rescan" style="display:inline">
+        <input type="hidden" name="sha256" value="{{ .SHA256 }}">
+        <button class="btn" type="submit">Re-scan on VirusTotal</button>
+      </form>
+      {{ end }}
+
+      <!-- Download JSON real link (built by script below) -->
+      <a class="btn" id="downloadJson" href="#">Download JSON</a>
+    </div>
+
+    <hr/>
+    <!-- Explain in plain English (ID or SHA) -->
+    <button class="btn" id="explainBtn">Explain this</button>
+    <pre id="explanation" class="muted">Click to generate a layperson summary.</pre>
+
+    <!-- Copy permalink & raw JSON viewer -->
+    <details style="margin-top:12px">
+      <summary>Raw VT JSON</summary>
+      <pre id="rawJson"></pre>
+    </details>
+
+    <p class="muted">Note: Results are indicative and not a substitute for endpoint protection.</p>
+    <a href="/scan">← Scan another file</a>
+  </div>
+
+  <script>
+  (function() {
+    const idTpl = (document.getElementById('analysisId')?.textContent || '').trim();
+    const shaEl = document.getElementById('sha');
+    const sha = (shaEl && shaEl.textContent || '').trim();  
+    const looksLikeId = s => !!s && s.length > 8 && !/[\/\s]/.test(s) && s.toLowerCase() !== 'scan';
+
+    // Copy link button
+    document.getElementById('copyLink')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(location.href);
+    });
+
+    // Build the correct /api/result-json URL (works for ID or SHA pages)
+    const idOrSha = sha || (idTpl || (location.pathname.split('/').pop() || ''));
+    const jsonURL = '/api/result-json/' + encodeURIComponent(idOrSha);
+
+    // Hook up Download JSON link
+    const dl = document.getElementById('downloadJson');
+    if (dl) dl.href = jsonURL + '?download=1';
+
+    // Load raw JSON into <pre>
+    fetch(jsonURL).then(r => r.ok ? r.json() : null).then(j => {
+      if (j) document.getElementById('rawJson').textContent = JSON.stringify(j, null, 2);
+    });
+
+    // Explain (prefers analysis_id, falls back to sha256)
+    document.getElementById('explainBtn')?.addEventListener('click', async () => {
+      const el = document.getElementById('explanation');
+      el.textContent = 'Working…';
+      const body = looksLikeId(idTpl) && idTpl !== 'from-hash' ? { analysis_id: idTpl }
+                 : (sha ? { sha256: sha } : null);
+      if (!body) { el.textContent = 'No analysis ID or SHA available.'; return; }
+      try {
+        const res = await fetch('/explain', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('application/json')) { el.textContent = `Server error ${res.status}`; return; }
+        const data = await res.json();
+        el.textContent = data.explanation || data.error || 'No explanation.';
+      } catch { el.textContent = 'Network error.'; }
+    });
+  })();
+  </script>
+</body>
+</html>
